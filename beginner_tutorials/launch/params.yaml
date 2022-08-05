@@ -1,0 +1,13 @@
+copy_turtle:
+  rosdistro: 'melodic'
+  roslaunch:
+    uris: {host_spencer_apex_15__34071: 'http://spencer-APEX-15:34071/'}
+  rosversion: '1.14.13'
+  run_id: dbad5e02-fe97-11ec-8d64-841b7704e818
+  turtlesim: {background_b: 255, background_g: 86, background_r: 86}
+rosdistro: 'melodic'
+roslaunch:
+  uris: {host_spencer_apex_15__34071: 'http://spencer-APEX-15:34071/'}
+rosversion: '1.14.13'
+run_id: dbad5e02-fe97-11ec-8d64-841b7704e818
+turtlesim: {background_b: 255, background_g: 86, background_r: 86}

@@ -1,0 +1,6 @@
+devel_space: /home/spencer/catkin_ws/src/beginner_tutorials/devel
+install: false
+install_space: /home/spencer/catkin_ws/src/beginner_tutorials/install
+profile: default
+source_space: /home/spencer/catkin_ws/src/beginner_tutorials/src
+workspace: /home/spencer/catkin_ws/src/beginner_tutorials

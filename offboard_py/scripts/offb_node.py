@@ -15,15 +15,48 @@ def state_cb(msg):
 if __name__ == "__main__":
     rospy.init_node("offb_node_py")
 
-    state_sub = rospy.Subscriber("mavros/state", State, callback = state_cb)
 
-    local_pos_pub = rospy.Publisher("mavros/setpoint_position/local", PoseStamped, queue_size=10)
+    pose = PoseStamped()
+    nowPose = PoseStamped()
+
+    def local_position_callback(data):
+        global nowPose
+        global pose
+        global current_state
+        global offb_set_mode
+        global arm_cmd
+        nowPose = data
+        if(current_state.mode != "OFFBOARD"):
+            if(set_mode_client.call(offb_set_mode).mode_sent == True):
+                rospy.loginfo("OFFBOARD enabled")
+            
+            
+        else:
+            if(not current_state.armed):
+                if(arming_client.call(arm_cmd).success == True):
+                    rospy.loginfo("Vehicle armed")
+            
+                last_req = rospy.Time.now()
+
+        ##new addition for land when pose close to right pose check how to see if position of drone is published.
+            else:
+                if  (pose != nowPose):
+                    local_pos_pub.publish(pose)
+                    print(nowPose.pose.position.x, nowPose.pose.position.y, nowPose.pose.position.z)
+                else :
+                    offb_set_mode.custom_mode = 'AUTO.LAND'
+
+    state_sub = rospy.Subscriber("/mavros/state", State, callback = state_cb)
+
+    local_pos_pub = rospy.Publisher("/mavros/setpoint_position/local", PoseStamped, queue_size=10)
+    local_pos_sub = rospy.Subscriber("/mavros/local_position/local", PoseStamped, local_position_callback, queue_size=10)
+    
     
     rospy.wait_for_service("/mavros/cmd/arming")
-    arming_client = rospy.ServiceProxy("mavros/cmd/arming", CommandBool)    
+    arming_client = rospy.ServiceProxy("/mavros/cmd/arming", CommandBool)    
 
     rospy.wait_for_service("/mavros/set_mode")
-    set_mode_client = rospy.ServiceProxy("mavros/set_mode", SetMode)
+    set_mode_client = rospy.ServiceProxy("/mavros/set_mode", SetMode)
     
 
     # Setpoint publishing MUST be faster than 2Hz
@@ -33,11 +66,11 @@ if __name__ == "__main__":
     while(not rospy.is_shutdown() and not current_state.connected):
         rate.sleep()
 
-    pose = PoseStamped()
 
+    #set goal for movement from init
     pose.pose.position.x = 2
     pose.pose.position.y = -5
-    pose.pose.position.z = 2
+    pose.pose.position.z = 3
 
     # Send a few setpoints before starting
     for i in range(100):   
@@ -54,21 +87,12 @@ if __name__ == "__main__":
     arm_cmd.value = True
 
     last_req = rospy.Time.now()
-
+    rospy.spin()
+    '''
     while(not rospy.is_shutdown()):
-        if(current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
-            if(set_mode_client.call(offb_set_mode).mode_sent == True):
-                rospy.loginfo("OFFBOARD enabled")
-            
-            last_req = rospy.Time.now()
-        else:
-            if(not current_state.armed and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
-                if(arming_client.call(arm_cmd).success == True):
-                    rospy.loginfo("Vehicle armed")
-            
-                last_req = rospy.Time.now()
+        
 
-        local_pos_pub.publish(pose)
 
         rate.sleep()
 
+    '''

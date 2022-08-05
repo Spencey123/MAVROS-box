@@ -1,0 +1,1 @@
+/home/spencer/catkin_ws/src/beginner_tutorials/devel/.private/catkin_tools_prebuild/local_setup.sh
