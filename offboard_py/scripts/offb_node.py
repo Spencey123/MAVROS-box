@@ -12,8 +12,8 @@ desired_height = 1
 boxsize = 10
 current_coord = (0,0) #initialize 1st position
 radius = 8
-num_of_points = 20
-
+num_of_points = 10 
+offset_for_newcircle = 0.1 #starting and end loop for circles are same so it iterates back to for the starting circling of infinity.
 
 def get_coordinates_square(boxsize):
     center_coordinate = (0,0)
@@ -28,19 +28,46 @@ def get_coordinates_circle(radius, num_of_points):
     points = []
     for i in range(num_of_points):
         points.append(((radius*sin(2*i*pi/num_of_points)),(radius*cos(2*i*pi/num_of_points))))
-    return tuple(points)
+    return points
 
+def get_coordinates_shifted_circle(radius, num_of_points):
+    #eqn for point on circle = radius*sin(360/num point),radius*cos(360/num of points)
+    points = []
+    for i in range(num_of_points):
+        points.append(((radius*sin(2*i*pi/num_of_points)),2*radius+offset_for_newcircle+(radius*cos(2*i*pi/num_of_points))))
+    return points
+
+def get_coordinates_infinity(radius, num_of_points):
+    #eqn for circle gets list of points to 1 circle 
+    #get equation for 2nd circle above first, add all points on 2nd
+    #bisect lists in 2 and join as 1stlist, mid2nd-top point and back. 
+    btm_circle = get_coordinates_circle(radius,num_of_points)
+    top_circle = get_coordinates_shifted_circle(radius,num_of_points)
+    right_tune_circle = []
+    left_tune_circle = []
+    final_coord =[]
+
+    for i in range(num_of_points):
+        if (i > 0.5* num_of_points):
+            left_tune_circle.insert(int(num_of_points/2)-i,top_circle[i])
+        else :
+            right_tune_circle.insert(i,top_circle[i])
+    right_tune_circle.reverse()
+    final_coord = btm_circle + right_tune_circle + left_tune_circle
+    global num_of_points_in_path 
+    num_of_points_in_path = len(final_coord)
+    return final_coord
 
 def get_new_coord(current_coord):
     if current_coord == (0,0):
-        return get_coordinates_circle(radius,num_of_points)[0] #go to BL
+        return get_coordinates_infinity(radius,num_of_points)[0] #go to BL
         
-    else :
-        for i in range(len(get_coordinates_circle(radius,num_of_points))):
-            if current_coord == get_coordinates_circle(radius,num_of_points)[num_of_points-1]:
-                return get_coordinates_circle(radius,num_of_points)[0]
-            elif current_coord == get_coordinates_circle(radius,num_of_points)[i]:
-                return (get_coordinates_circle(radius,num_of_points)[i+1])
+    else :    
+        for i in range(len(get_coordinates_infinity(radius,num_of_points))):
+            if current_coord == get_coordinates_infinity(radius,num_of_points)[num_of_points_in_path-1]:
+                return get_coordinates_infinity(radius,num_of_points)[0]
+            elif current_coord == get_coordinates_infinity(radius,num_of_points)[i]:
+                return (get_coordinates_infinity(radius,num_of_points)[i+1])
 
 def state_cb(msg):
     global current_state
@@ -140,3 +167,11 @@ if __name__ == "__main__":
             
         rate.sleep()
     rospy.spin()
+
+
+[(0.0, 24.0), (8.0, 16.0), (9.797174393178826e-16, 8.0), (-8.0, 15.999999999999998)]
+[(0.0, 8.0), (8.0, 4.898587196589413e-16), (9.797174393178826e-16, -8.0), (-8.0, -1.4695761589768238e-15), (9.797174393178826e-16, 8.0), (8.0, 16.0), (0.0, 24.0), (-8.0, 15.999999999999998)]
+[(0.0, 24.0), (8.0, 16.0), (9.797174393178826e-16, 8.0), (-8.0, 15.999999999999998)]
+[(0.0, 8.0), (8.0, 4.898587196589413e-16), (9.797174393178826e-16, -8.0), (-8.0, -1.4695761589768238e-15), (9.797174393178826e-16, 8.0), (8.0, 16.0), (0.0, 24.0), (-8.0, 15.999999999999998)]
+[(0.0, 24.0), (8.0, 16.0), (9.797174393178826e-16, 8.0), (-8.0, 15.999999999999998)]
+[(0.0, 8.0), (8.0, 4.898587196589413e-16), (9.797174393178826e-16, -8.0), (-8.0, -1.4695761589768238e-15), (9.797174393178826e-16, 8.0), (8.0, 16.0), (0.0, 24.0), (-8.0, 15.999999999999998)]
