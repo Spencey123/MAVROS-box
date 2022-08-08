@@ -7,6 +7,29 @@ from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
 
 current_state = State()
+desired_height = 1
+boxsize = 10
+current_coord = (0,0) #initialize 1st position
+
+
+def get_coordinates_square(boxsize):
+    center_coordinate = (0,0)
+    BL= (-boxsize,-boxsize)
+    BR= (boxsize,-boxsize)
+    TR= (boxsize, boxsize)
+    TL= (-boxsize,boxsize)
+    return (BL,BR,TR,TL)
+
+def get_new_coord(current_coord):
+    if current_coord == (0,0):
+        return get_coordinates_square(boxsize)[0] #go to BL
+        
+    else :
+        for i in range(3):
+            if current_coord == get_coordinates_square(boxsize)[3]:
+                return get_coordinates_square(boxsize)[0]
+            elif current_coord == get_coordinates_square(boxsize)[i]:
+                return (get_coordinates_square(boxsize)[i+1])
 
 def state_cb(msg):
     global current_state
@@ -16,15 +39,13 @@ def local_position_callback(data):
     global nowPose
     nowPose = data
 
-
 def isclose(a,b,abs_tol):
     return(abs(a-b) <= abs_tol)
 
     
 if __name__ == "__main__":
     rospy.init_node("offb_node_py")
-
-
+    
     pose = PoseStamped()
     nowPose = Odometry()
 
@@ -49,9 +70,9 @@ if __name__ == "__main__":
 
 
     #set goal for movement from init
-    pose.pose.position.x = 3
-    pose.pose.position.y = -5
-    pose.pose.position.z = 2
+    pose.pose.position.x = current_coord[0]
+    pose.pose.position.y = current_coord[1]
+    pose.pose.position.z = desired_height
 
     # Send a few setpoints before starting
     for i in range(100):   
@@ -70,6 +91,10 @@ if __name__ == "__main__":
     last_req = rospy.Time.now()
 
     while(not rospy.is_shutdown()):
+
+        offb_set_mode = SetModeRequest()
+        offb_set_mode.custom_mode = 'OFFBOARD'
+
         if(current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
             if(set_mode_client.call(offb_set_mode).mode_sent == True):
                 rospy.loginfo("OFFBOARD enabled")
@@ -84,14 +109,22 @@ if __name__ == "__main__":
         ##new addition for land when pose close to right pose check how to see if position of drone is published.
         
         elif  isclose(pose.pose.position.x,nowPose.pose.pose.position.x,0.1)&\
-                isclose(pose.pose.position.y,nowPose.pose.pose.position.y,0.1)&\
-                isclose(pose.pose.position.z,nowPose.pose.pose.position.z,0.1):
-            offb_set_mode.custom_mode = 'AUTO.LAND'
+            isclose(pose.pose.position.y,nowPose.pose.pose.position.y,0.1)&\
+            isclose(pose.pose.position.z,nowPose.pose.pose.position.z,0.1):
+            current_coord = get_new_coord(current_coord)
+            pose.pose.position.x = current_coord[0]
+            pose.pose.position.y = current_coord[1]
+            pose.pose.position.z = desired_height
+            print("reached")
+
+
         else :
+            pose.pose.position.x = current_coord[0]
+            pose.pose.position.y = current_coord[1]
+            pose.pose.position.z = desired_height
             local_pos_pub.publish(pose)
-            print((nowPose.pose.pose.position),(pose.pose.position))
-        
-        
-        
+            print (current_coord)
+            
+            
         rate.sleep()
     rospy.spin()
