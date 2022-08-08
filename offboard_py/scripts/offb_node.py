@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 
+from math import sin, cos, pi
 import rospy
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
@@ -10,6 +11,8 @@ current_state = State()
 desired_height = 1
 boxsize = 10
 current_coord = (0,0) #initialize 1st position
+radius = 8
+num_of_points = 20
 
 
 def get_coordinates_square(boxsize):
@@ -20,16 +23,24 @@ def get_coordinates_square(boxsize):
     TL= (-boxsize,boxsize)
     return (BL,BR,TR,TL)
 
+def get_coordinates_circle(radius, num_of_points):
+    #eqn for point on circle = radius*sin(360/num point),radius*cos(360/num of points)
+    points = []
+    for i in range(num_of_points):
+        points.append(((radius*sin(2*i*pi/num_of_points)),(radius*cos(2*i*pi/num_of_points))))
+    return tuple(points)
+
+
 def get_new_coord(current_coord):
     if current_coord == (0,0):
-        return get_coordinates_square(boxsize)[0] #go to BL
+        return get_coordinates_circle(radius,num_of_points)[0] #go to BL
         
     else :
-        for i in range(3):
-            if current_coord == get_coordinates_square(boxsize)[3]:
-                return get_coordinates_square(boxsize)[0]
-            elif current_coord == get_coordinates_square(boxsize)[i]:
-                return (get_coordinates_square(boxsize)[i+1])
+        for i in range(len(get_coordinates_circle(radius,num_of_points))):
+            if current_coord == get_coordinates_circle(radius,num_of_points)[num_of_points-1]:
+                return get_coordinates_circle(radius,num_of_points)[0]
+            elif current_coord == get_coordinates_circle(radius,num_of_points)[i]:
+                return (get_coordinates_circle(radius,num_of_points)[i+1])
 
 def state_cb(msg):
     global current_state
@@ -116,6 +127,7 @@ if __name__ == "__main__":
             pose.pose.position.y = current_coord[1]
             pose.pose.position.z = desired_height
             print("reached")
+            print (current_coord)
 
 
         else :
@@ -123,7 +135,7 @@ if __name__ == "__main__":
             pose.pose.position.y = current_coord[1]
             pose.pose.position.z = desired_height
             local_pos_pub.publish(pose)
-            print (current_coord)
+            
             
             
         rate.sleep()
