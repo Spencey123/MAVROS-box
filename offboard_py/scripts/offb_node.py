@@ -12,8 +12,10 @@ desired_height = 1
 boxsize = 10
 current_coord = (0.3,0.3) #initialize 1st position
 radius = 8
-num_of_points = 5
+num_of_points = 8
 offset_for_newcircle = 0.1 #starting and end loop for circles are same so it iterates back to for the starting circling of infinity.
+length = 20
+girth = 10
 
 def get_coordinates_square(boxsize):
     center_coordinate = (0,0)
@@ -45,7 +47,7 @@ def get_coordinates_infinity(radius, num_of_points):
     top_circle = get_coordinates_shifted_circle(radius,num_of_points) #shift circle 2r+small amount up
     right_tune_circle = []
     left_tune_circle = []
-    final_coord =[]
+    coord_list_infinity =[]
 
     for i in range(num_of_points):
         if (i > 0.5* num_of_points):
@@ -53,28 +55,50 @@ def get_coordinates_infinity(radius, num_of_points):
         else :
             right_tune_circle.insert(i,top_circle[i])
     right_tune_circle.reverse()             #flip right side to start circle from bottom to top
-    final_coord = btm_circle + right_tune_circle + left_tune_circle #combine circles together
+    coord_list_infinity = btm_circle + right_tune_circle + left_tune_circle #combine circles together
+    return coord_list_infinity
+
+def get_coordinates_dong_curve(length, girth, num_of_points):
+    points = []
+    for i in range(num_of_points):
+        if (i<0.5*num_of_points):
+            points.append(((length+ girth *sin(2*i*pi/(num_of_points))),(- girth + girth*cos(2*i*pi/(num_of_points)))))
+    return points
+
+def dong_draw (radius,num_of_points,length, girth):
+    balls = get_coordinates_infinity(radius,num_of_points)
+    full_dong_curve = get_coordinates_dong_curve(length, girth, num_of_points)
+    dong_list = [(0.2,0.2)]
+    first_point = [(radius,radius)]
+    last_point = [(radius,-radius)]
+    final_draw = balls + dong_list + first_point + full_dong_curve + last_point
+    return (final_draw)
+
+
+def get_latest_path(radius, num_of_points,length,girth):
     global num_of_points_in_path 
-    num_of_points_in_path = len(final_coord)
-    return final_coord
-
-
+    num_of_points_in_path = len(dong_draw(radius,num_of_points,length, girth))
+    return dong_draw(radius,num_of_points,length, girth)
 
 def get_new_coord(current_coord):
     if current_coord == (0.3,0.3):
-        return get_coordinates_infinity(radius,num_of_points)[0] #go to BL
+        print (len(get_latest_path(radius,num_of_points,length,girth)))
+        print (get_latest_path(radius,num_of_points,length,girth))
+        return get_latest_path(radius,num_of_points,length,girth)[0] #go to BL
         
     else :    
-        for i in range(len(get_coordinates_infinity(radius,num_of_points))):
-            if current_coord == get_coordinates_infinity(radius,num_of_points)[num_of_points_in_path-1]:
+        for i in range(len(get_latest_path(radius,num_of_points,length,girth))):
+            if current_coord == get_latest_path(radius,num_of_points,length,girth)[num_of_points_in_path-1]:
                 while (nowPose.pose.pose.position.z != 0) :
                     offb_set_mode.custom_mode = 'AUTO.LAND' #land drone at last waypoint
                     pose.pose.position.z = 0
-                    return get_coordinates_infinity(radius,num_of_points)[num_of_points_in_path-1]
+                    return get_latest_path(radius,num_of_points,length,girth)[num_of_points_in_path-1]
 
 
-            elif current_coord == get_coordinates_infinity(radius,num_of_points)[i]:
-                return (get_coordinates_infinity(radius,num_of_points)[i+1])
+            elif current_coord == get_latest_path(radius,num_of_points,length,girth)[i]:
+                print("moving to next place")
+                print (len(get_latest_path(radius,num_of_points,length,girth)))
+                return (get_latest_path(radius,num_of_points,length,girth)[i+1])
 
 def state_cb(msg):
     global current_state
