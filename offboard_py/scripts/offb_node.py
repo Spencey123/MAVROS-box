@@ -10,15 +10,15 @@ from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeReq
 current_state = State()
 desired_height = 1
 boxsize = 10
-current_coord = (0.3,0.3) #initialize 1st position
+current_coord = (0,0) #initialize 1st position
 radius = 8
-num_of_points = 8
+num_of_points = 12
 offset_for_newcircle = 0.1 #starting and end loop for circles are same so it iterates back to for the starting circling of infinity.
-length = 20
+length = 50
 girth = 10
+coordinate_count = 0
 
 def get_coordinates_square(boxsize):
-    center_coordinate = (0,0)
     BL= (-boxsize,-boxsize)
     BR= (boxsize,-boxsize)
     TR= (boxsize, boxsize)
@@ -61,17 +61,24 @@ def get_coordinates_infinity(radius, num_of_points):
 def get_coordinates_dong_curve(length, girth, num_of_points):
     points = []
     for i in range(num_of_points):
-        if (i<0.5*num_of_points):
-            points.append(((length+ girth *sin(2*i*pi/(num_of_points))),(- girth + girth*cos(2*i*pi/(num_of_points)))))
+        if (num_of_points % 2 == 0):
+            if (i<0.5*num_of_points+1):
+                points.append(((length+ girth *sin(2*i*pi/(num_of_points))),(girth*cos(2*i*pi/(num_of_points)))))
+        else:
+            if (i<0.5*num_of_points):
+                points.append(((length+ girth *sin(2*i*pi/(num_of_points))),(girth*cos(2*i*pi/(num_of_points)))))
     return points
 
 def dong_draw (radius,num_of_points,length, girth):
     balls = get_coordinates_infinity(radius,num_of_points)
     full_dong_curve = get_coordinates_dong_curve(length, girth, num_of_points)
-    dong_list = [(0.2,0.2)]
+    fix_ball_curve = [(0.0,0.0)]
+    for i in range(len(balls)):
+        if (0.5*len(balls)<i<0.625*len(balls)):
+            fix_ball_curve.append(balls[i])
     first_point = [(radius,radius)]
     last_point = [(radius,-radius)]
-    final_draw = balls + dong_list + first_point + full_dong_curve + last_point
+    final_draw = balls + fix_ball_curve + first_point + full_dong_curve + last_point
     return (final_draw)
 
 
@@ -80,25 +87,25 @@ def get_latest_path(radius, num_of_points,length,girth):
     num_of_points_in_path = len(dong_draw(radius,num_of_points,length, girth))
     return dong_draw(radius,num_of_points,length, girth)
 
+def landing():
+    offb_set_mode.custom_mode = 'AUTO.LAND'
+    pose.pose.position.z = 0
+
 def get_new_coord(current_coord):
-    if current_coord == (0.3,0.3):
-        print (len(get_latest_path(radius,num_of_points,length,girth)))
-        print (get_latest_path(radius,num_of_points,length,girth))
+    global coordinate_count
+    if coordinate_count == 0:
+        coordinate_count += 1
         return get_latest_path(radius,num_of_points,length,girth)[0] #go to BL
         
-    else :    
-        for i in range(len(get_latest_path(radius,num_of_points,length,girth))):
-            if current_coord == get_latest_path(radius,num_of_points,length,girth)[num_of_points_in_path-1]:
-                while (nowPose.pose.pose.position.z != 0) :
-                    offb_set_mode.custom_mode = 'AUTO.LAND' #land drone at last waypoint
-                    pose.pose.position.z = 0
-                    return get_latest_path(radius,num_of_points,length,girth)[num_of_points_in_path-1]
+    elif coordinate_count == num_of_points_in_path:
+        landing()
+        return get_latest_path(radius,num_of_points,length,girth)[coordinate_count-1]
 
+    else:    
+        coordinate_count += 1
+        print ("incrementing")
+        return get_latest_path(radius,num_of_points,length,girth)[coordinate_count-1]
 
-            elif current_coord == get_latest_path(radius,num_of_points,length,girth)[i]:
-                print("moving to next place")
-                print (len(get_latest_path(radius,num_of_points,length,girth)))
-                return (get_latest_path(radius,num_of_points,length,girth)[i+1])
 
 def state_cb(msg):
     global current_state
@@ -188,6 +195,7 @@ if __name__ == "__main__":
             pose.pose.position.z = desired_height
             print("reached")
             print (current_coord)
+            print (coordinate_count)
 
 
         else :
