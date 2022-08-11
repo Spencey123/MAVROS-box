@@ -118,10 +118,22 @@ def local_position_callback(data):
 def isclose(a,b,abs_tol):
     return(abs(a-b) <= abs_tol)
 
+
+ 
     
-if __name__ == "__main__":
+def main():
+    global current_state
+    global desired_height 
+    global boxsize
+    global current_coord
+    global radius 
+    global num_of_points
+    global offset_for_newcircle 
+    global length 
+    global girth 
+    global coordinate_count 
+    
     rospy.init_node("offb_node_py")
-    
     pose = PoseStamped()
     nowPose = Odometry()
 
@@ -208,3 +220,6 @@ if __name__ == "__main__":
             
         rate.sleep()
     rospy.spin()
+    
+if __name__ == "__main__":
+    main()
