@@ -7,204 +7,175 @@ from geometry_msgs.msg import PoseStamped
 from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
 
-current_state = State()
-desired_height = 1
-boxsize = 10
-current_coord = (0,0) #initialize 1st position
-radius = 8
-num_of_points = 12
-offset_for_newcircle = 0.1 #starting and end loop for circles are same so it iterates back to for the starting circling of infinity.
-length = 50
-girth = 10
-coordinate_count = 0
+class Drone:
+    def __init__(self,desired_height, radius, num_of_points,length,girth): 
+        self.current_state = State()
+        self.desired_height = desired_height
+        self.boxsize = 10
+        self.current_coord = (0,0) #initialize 1st position
+        self.radius = radius
+        self.num_of_points = num_of_points
+        self.offset_for_newcircle = 0.1 #starting and end loop for circles are same so it iterates back to for the starting circling of infinity.
+        self.length = length
+        self.girth = girth
+        self.coordinate_count = 0
+        self.state_sub = rospy.Subscriber("/mavros/state", State, callback = self.state_cb)
+        self.local_pos_pub = rospy.Publisher("/mavros/setpoint_position/local", PoseStamped, queue_size=10)
+        self.local_pos_sub = rospy.Subscriber("/mavros/global_position/local", Odometry, callback = self.local_position_callback, queue_size=10)
+        self.fly()
 
-def get_coordinates_square(boxsize):
-    BL= (-boxsize,-boxsize)
-    BR= (boxsize,-boxsize)
-    TR= (boxsize, boxsize)
-    TL= (-boxsize,boxsize)
-    return (BL,BR,TR,TL)
+    def get_coordinates_square(self,boxsize):
+        BL= (-boxsize,-boxsize)
+        BR= (boxsize,-boxsize)
+        TR= (boxsize, boxsize)
+        TL= (-boxsize,boxsize)
+        return (BL,BR,TR,TL)
 
-def get_coordinates_circle(radius, num_of_points):
-    #eqn for point on circle = radius*sin(360/num point),radius*cos(360/num of points)
-    points = []
-    for i in range(num_of_points):
-        points.append(((radius*sin(2*i*pi/num_of_points)),(- radius + radius*cos(2*i*pi/num_of_points))))
-    return points
+    def get_coordinates_circle(self,radius, num_of_points,offsetx,offsety):
+        #eqn for point on circle = radius*sin(360/num point),radius*cos(360/num of points)
+        points = []
+        for i in range(num_of_points):
+            points.append(((offsetx + radius*sin(2*i*pi/num_of_points)),(offsety + radius*cos(2*i*pi/num_of_points))))
+        return points
 
-def get_coordinates_shifted_circle(radius, num_of_points):
-    #eqn for point on circle = radius*sin(360/num point),radius*cos(360/num of points)
-    points = []
-    for i in range(num_of_points):
-        points.append(((radius*sin(2*i*pi/num_of_points)),radius + offset_for_newcircle + (radius*cos(2*i*pi/num_of_points))))
-    return points
+    def get_coordinates_infinity(self,radius, num_of_points):
+        #eqn for circle gets list of points to 1 circle 
+        #get equation for 2nd circle above first, add all points on 2nd
+        #bisect lists in 2 and join as 1stlist, mid2nd-top point and back. 
+        btm_circle = self.get_coordinates_circle(radius,num_of_points,0,-radius)
+        top_circle = self.get_coordinates_circle(radius,num_of_points,0,+radius) #shift circle 2r+small amount up
+        right_tune_circle = []
+        left_tune_circle = []
+        coord_list_infinity =[]
 
-def get_coordinates_infinity(radius, num_of_points):
-    #eqn for circle gets list of points to 1 circle 
-    #get equation for 2nd circle above first, add all points on 2nd
-    #bisect lists in 2 and join as 1stlist, mid2nd-top point and back. 
-    btm_circle = get_coordinates_circle(radius,num_of_points)
-    top_circle = get_coordinates_shifted_circle(radius,num_of_points) #shift circle 2r+small amount up
-    right_tune_circle = []
-    left_tune_circle = []
-    coord_list_infinity =[]
+        for i in range(num_of_points):
+            if (i > 0.5* num_of_points):
+                left_tune_circle.insert(int(num_of_points/2)-i,top_circle[i])
+            else :
+                right_tune_circle.insert(i,top_circle[i])
+        right_tune_circle.reverse()             #flip right side to start circle from bottom to top
+        coord_list_infinity = btm_circle + right_tune_circle + left_tune_circle #combine circles together
+        return coord_list_infinity
 
-    for i in range(num_of_points):
-        if (i > 0.5* num_of_points):
-            left_tune_circle.insert(int(num_of_points/2)-i,top_circle[i])
-        else :
-            right_tune_circle.insert(i,top_circle[i])
-    right_tune_circle.reverse()             #flip right side to start circle from bottom to top
-    coord_list_infinity = btm_circle + right_tune_circle + left_tune_circle #combine circles together
-    return coord_list_infinity
+    def get_coordinates_dong_curve(self, length, girth, num_of_points):
+        points = []
+        for i in range(num_of_points):
+            if (num_of_points % 2 == 0):
+                if (i<0.5*num_of_points+1):
+                    points.append(((length+ girth *sin(2*i*pi/(num_of_points))),(girth*cos(2*i*pi/(num_of_points)))))
+            else:
+                if (i<0.5*num_of_points):
+                    points.append(((length+ girth *sin(2*i*pi/(num_of_points))),(girth*cos(2*i*pi/(num_of_points)))))
+        return points
 
-def get_coordinates_dong_curve(length, girth, num_of_points):
-    points = []
-    for i in range(num_of_points):
-        if (num_of_points % 2 == 0):
-            if (i<0.5*num_of_points+1):
-                points.append(((length+ girth *sin(2*i*pi/(num_of_points))),(girth*cos(2*i*pi/(num_of_points)))))
-        else:
-            if (i<0.5*num_of_points):
-                points.append(((length+ girth *sin(2*i*pi/(num_of_points))),(girth*cos(2*i*pi/(num_of_points)))))
-    return points
-
-def dong_draw (radius,num_of_points,length, girth):
-    balls = get_coordinates_infinity(radius,num_of_points)
-    full_dong_curve = get_coordinates_dong_curve(length, girth, num_of_points)
-    fix_ball_curve = [(0.0,0.0)]
-    for i in range(len(balls)):
-        if (0.5*len(balls)<i<0.625*len(balls)):
-            fix_ball_curve.append(balls[i])
-    first_point = [(radius,radius)]
-    last_point = [(radius,-radius)]
-    final_draw = balls + fix_ball_curve + first_point + full_dong_curve + last_point
-    return (final_draw)
-
-
-def get_latest_path(radius, num_of_points,length,girth):
-    global num_of_points_in_path 
-    num_of_points_in_path = len(dong_draw(radius,num_of_points,length, girth))
-    return dong_draw(radius,num_of_points,length, girth)
-
-def landing():
-    offb_set_mode.custom_mode = 'AUTO.LAND'
-    pose.pose.position.z = 0
-
-def get_new_coord(current_coord):
-    global coordinate_count
-    if coordinate_count == 0:
-        coordinate_count += 1
-        return get_latest_path(radius,num_of_points,length,girth)[0] #go to BL
-        
-    elif coordinate_count == num_of_points_in_path:
-        landing()
-        return get_latest_path(radius,num_of_points,length,girth)[coordinate_count-1]
-
-    else:    
-        coordinate_count += 1
-        print ("incrementing")
-        return get_latest_path(radius,num_of_points,length,girth)[coordinate_count-1]
+    def dong_draw (self, radius,num_of_points,length, girth):
+        balls = self.get_coordinates_infinity(radius,num_of_points)
+        full_dong_curve = self.get_coordinates_dong_curve(length, girth, num_of_points)
+        fix_ball_curve = [(0.0,0.0)]
+        for i in range(len(balls)):
+            if (0.5*len(balls)<i<0.625*len(balls)):
+                fix_ball_curve.append(balls[i])
+        first_point = [(radius,radius)]
+        last_point = [(radius,-radius)]
+        final_draw = balls + fix_ball_curve + first_point + full_dong_curve + last_point
+        return (final_draw)
 
 
-def state_cb(msg):
-    global current_state
-    current_state = msg
-
-def local_position_callback(data):
-    global nowPose
-    nowPose = data
-
-def isclose(a,b,abs_tol):
-    return(abs(a-b) <= abs_tol)
-
+    def get_latest_path(self, radius, num_of_points,length,girth):
+        global num_of_points_in_path 
+        num_of_points_in_path = len(self.dong_draw(radius,num_of_points,length, girth))
+        return self.dong_draw(radius,num_of_points,length, girth)
     
-if __name__ == "__main__":
+    def isclose(self,a,b,abs_tol):
+        return(abs(a-b) <= abs_tol)
+
+    def landing(self):
+        self.offb_set_mode.custom_mode = 'AUTO.LAND'
+        self.goalpose.pose.position.z = 0
+
+    def get_new_coord(self,current_coord):
+        if self.coordinate_count == 0:
+            self.coordinate_count += 1
+            return self.get_latest_path(self.radius,self.num_of_points,self.length,self.girth)[0] #go to BL
+            
+        elif self.coordinate_count == num_of_points_in_path:
+            self.landing()
+            return self.get_latest_path(self.radius,self.num_of_points,self.length,self.girth)[self.coordinate_count-1]
+
+        else:    
+            self.coordinate_count += 1
+            print ("incrementing")
+            return self.get_latest_path(self.radius,self.num_of_points,self.length,self.girth)[self.coordinate_count-1]
+
+
+    def state_cb(self,msg):
+        self.current_state = msg
+
+    def local_position_callback(self,data):
+        self.nowPose = data
+        print (self.nowPose)
+       
+    def fly(self): 
+
+        self.goalpose = PoseStamped()
+        self.nowPose = Odometry()
+
+        rospy.wait_for_service("/mavros/cmd/arming")
+        arming_client = rospy.ServiceProxy("/mavros/cmd/arming", CommandBool)    
+
+        rospy.wait_for_service("/mavros/set_mode")
+        self.set_mode_client = rospy.ServiceProxy("/mavros/set_mode", SetMode) 
+        self.set_mode_client.call()
+
+        last_req = rospy.Time.now()
+
+        #set goal for movement from init
+        self.goalpose.pose.position.x = self.current_coord[0]
+        self.goalpose.pose.position.y = self.current_coord[1]
+        self.goalpose.pose.position.z = self.desired_height
+
+        arm_cmd = CommandBoolRequest()
+        arm_cmd.value = True
+
+        self.offb_set_mode = SetModeRequest()
+        self.offb_set_mode.custom_mode = 'OFFBOARD'
+
+        rate = rospy.Rate(20)
+        while(not rospy.is_shutdown()):
+            print (self.nowPose)
+            if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):  #check offboard mode on
+                if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
+                    rospy.loginfo("OFFBOARD enabled")
+                
+                last_req = rospy.Time.now()
+            elif(not self.current_state.armed and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):         #check if vehicle armed
+                if(arming_client.call(arm_cmd).success == True):
+                    rospy.loginfo("Vehicle armed")
+                
+                last_req = rospy.Time.now()
+            
+            elif  self.isclose(self.goalpose.pose.position.x,self.nowPose.pose.pose.position.x,0.1)&\
+                self.isclose(self.goalpose.pose.position.y,self.nowPose.pose.pose.position.y,0.1)&\
+                self.isclose(self.goalpose.pose.position.z,self.nowPose.pose.pose.position.z,0.1):              #check if position reached goal position for new goal
+                self.current_coord = self.get_new_coord(self.current_coord)
+                self.goalpose.pose.position.x = self.current_coord[0]
+                self.goalpose.pose.position.y = self.current_coord[1]
+                self.goalpose.pose.position.z = self.desired_height
+                print("reached")
+                print (self.current_coord)
+                print (self.coordinate_count)
+
+            else :                                                                                              #keeps publishing goal position for FC to follow
+                self.goalpose.pose.position.x = self.current_coord[0]
+                self.goalpose.pose.position.y = self.current_coord[1]
+                self.goalpose.pose.position.z = self.desired_height
+                self.local_pos_pub.publish(self.goalpose)
+
+        rate.sleep()
+           
+        
+if __name__ == '__main__':
     rospy.init_node("offb_node_py")
-    
-    pose = PoseStamped()
-    nowPose = Odometry()
-
-    state_sub = rospy.Subscriber("/mavros/state", State, callback = state_cb)
-    local_pos_pub = rospy.Publisher("/mavros/setpoint_position/local", PoseStamped, queue_size=10)
-    local_pos_sub = rospy.Subscriber("/mavros/global_position/local", Odometry, callback = local_position_callback, queue_size=10)
-    
-    
-    rospy.wait_for_service("/mavros/cmd/arming")
-    arming_client = rospy.ServiceProxy("/mavros/cmd/arming", CommandBool)    
-
-    rospy.wait_for_service("/mavros/set_mode")
-    set_mode_client = rospy.ServiceProxy("/mavros/set_mode", SetMode)
-    
-
-    # Setpoint publishing MUST be faster than 2Hz
-    rate = rospy.Rate(20)
-
-    # Wait for Flight Controller connection
-    while(not rospy.is_shutdown() and not current_state.connected):
-        rate.sleep()
-
-
-    #set goal for movement from init
-    pose.pose.position.x = current_coord[0]
-    pose.pose.position.y = current_coord[1]
-    pose.pose.position.z = desired_height
-
-    # Send a few setpoints before starting
-    for i in range(100):   
-        if(rospy.is_shutdown()):
-            break
-
-        local_pos_pub.publish(pose)
-        rate.sleep()
-
-    offb_set_mode = SetModeRequest()
-    offb_set_mode.custom_mode = 'OFFBOARD'
-
-    arm_cmd = CommandBoolRequest()
-    arm_cmd.value = True
-
-    last_req = rospy.Time.now()
-
-    offb_set_mode = SetModeRequest()
-    offb_set_mode.custom_mode = 'OFFBOARD'
-
-    while(not rospy.is_shutdown()):
-
-
-
-        if(current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
-            if(set_mode_client.call(offb_set_mode).mode_sent == True):
-                rospy.loginfo("OFFBOARD enabled")
-            
-            last_req = rospy.Time.now()
-        elif(not current_state.armed and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):
-            if(arming_client.call(arm_cmd).success == True):
-                rospy.loginfo("Vehicle armed")
-            
-            last_req = rospy.Time.now()
-
-        ##new addition for land when pose close to right pose check how to see if position of drone is published.
-        
-        elif  isclose(pose.pose.position.x,nowPose.pose.pose.position.x,0.1)&\
-            isclose(pose.pose.position.y,nowPose.pose.pose.position.y,0.1)&\
-            isclose(pose.pose.position.z,nowPose.pose.pose.position.z,0.1):
-            current_coord = get_new_coord(current_coord)
-            pose.pose.position.x = current_coord[0]
-            pose.pose.position.y = current_coord[1]
-            pose.pose.position.z = desired_height
-            print("reached")
-            print (current_coord)
-            print (coordinate_count)
-
-
-        else :
-            pose.pose.position.x = current_coord[0]
-            pose.pose.position.y = current_coord[1]
-            pose.pose.position.z = desired_height
-            local_pos_pub.publish(pose)
-            
-            
-            
-        rate.sleep()
+    drone = Drone(1,4,12,30,5)
     rospy.spin()
+
