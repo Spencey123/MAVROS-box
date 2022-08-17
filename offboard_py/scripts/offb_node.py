@@ -22,6 +22,7 @@ class Drone:
         self.state_sub = rospy.Subscriber("/mavros/state", State, callback = self.state_cb)
         self.local_pos_pub = rospy.Publisher("/mavros/setpoint_position/local", PoseStamped, queue_size=10)
         self.local_pos_sub = rospy.Subscriber("/mavros/global_position/local", Odometry, callback = self.local_position_callback, queue_size=10)
+        self.landpos = [(0.5,1.5)]
         self.fly()
 
     def get_coordinates_square(self,boxsize):
@@ -77,7 +78,7 @@ class Drone:
                 fix_ball_curve.append(balls[i])
         first_point = [(radius,radius)]
         last_point = [(radius,-radius)]
-        final_draw = balls + fix_ball_curve + first_point + full_dong_curve + last_point
+        final_draw = balls + fix_ball_curve + first_point + full_dong_curve + last_point + self.landpos
         return (final_draw)
 
 
@@ -113,7 +114,6 @@ class Drone:
 
     def local_position_callback(self,data):
         self.nowPose = data
-        print (self.nowPose)
        
     def fly(self): 
 
@@ -142,7 +142,6 @@ class Drone:
 
         rate = rospy.Rate(20)
         while(not rospy.is_shutdown()):
-            print (self.nowPose)
             if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):  #check offboard mode on
                 if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
                     rospy.loginfo("OFFBOARD enabled")
@@ -176,7 +175,7 @@ class Drone:
         
 if __name__ == '__main__':
     rospy.init_node("offb_node_py")
-    drone = Drone(1,4,12,30,5)
+    drone = Drone(1,4,8,10,6)
     rospy.spin()
 
 '''
