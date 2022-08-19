@@ -1,9 +1,8 @@
 #! /usr/bin/env python
-
-from math import sin, cos, pi
 import rospy
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import LaserScan
 from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
 
@@ -17,12 +16,14 @@ class Drone:
         self.state_sub = rospy.Subscriber("/mavros/state", State, callback = self.state_cb)
         self.local_pos_pub = rospy.Publisher("/mavros/setpoint_position/local", PoseStamped, queue_size=10)
         self.local_pos_sub = rospy.Subscriber("/mavros/global_position/local", Odometry, callback = self.local_position_callback, queue_size=10)
+        self.sub = rospy.Subscriber('/laser/scan', LaserScan, self.callback)
+        self.pub = rospy.Publisher('/laser/revised_scan', LaserScan, queue_size = 10)
+        self.scann = LaserScan()
         self.landpos = [(0.5,1.5)]
         self.fly()
 
-    
     def path(self):
-        return [(0,0),(5,0),(5,5),(0,5)]
+        return [(0,0),(8,0),(5,5),(0,5),(0,0)]
 
 
     def get_latest_path(self):
@@ -52,12 +53,40 @@ class Drone:
             return self.get_latest_path()[self.coordinate_count-1]
 
 
+    def callback(self,msg):
+    #print(len(msg.ranges))          #len is 360
+        current_time = rospy.Time.now()
+        self.scann.header.stamp = current_time
+        self.scann.header.frame_id = 'laser'
+        self.scann.angle_min = -3.1415
+        self.scann.angle_max = 3.1415
+        self.scann.angle_increment = 0.00311202858575
+        self.scann.time_increment = 4.99999987369e-05
+        self.scann.range_min = 0.50999999977648
+        self.scann.range_max = 32.0
+        self.scann.ranges = msg.ranges[::5]
+        coll = []
+        for i in range(len(self.scann.ranges)):
+            if 1 <= (self.scann.ranges[i]) <= 5:      #filter bad data
+                coll.append((i,self.scann.ranges[i]))
+        print(coll)
+        '''
+        function to conjoin last and first chunking to get point nearest obstacle
+        '''
+
+        #if (coll[0]-coll[-1])
+        #print ((coll[0]+coll[-1])/2)
+        #self.scann.intensities = msg.intensities[0:40]
+        self.pub.publish(self.scann)
+
+
     def state_cb(self,msg):
         self.current_state = msg
 
     def local_position_callback(self,data):
         self.nowPose = data
-       
+    
+
     def fly(self): 
 
         self.goalpose = PoseStamped()
@@ -112,12 +141,12 @@ class Drone:
                 self.goalpose.pose.position.y = self.current_coord[1]
                 self.goalpose.pose.position.z = self.desired_height
                 self.local_pos_pub.publish(self.goalpose)
+                
 
-        rate.sleep()
            
         
 if __name__ == '__main__':
-    rospy.init_node("offb_node_py")
+    rospy.init_node("offb_node_pywcam")
     drone = Drone(3)
     rospy.spin()
 
