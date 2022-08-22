@@ -1,4 +1,5 @@
 #! /usr/bin/env python
+from pickle import FALSE
 import rospy
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
@@ -7,7 +8,7 @@ from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
 
 class Drone:
-    def __init__(self,desired_height): 
+    def __init__(self,desired_height):      #iris drone size = 0.5,0.5,0.15m l,w,h
         self.current_state = State()
         self.desired_height = desired_height
         self.current_coord = (0,0) #initialize 1st position
@@ -19,11 +20,12 @@ class Drone:
         self.sub = rospy.Subscriber('/laser/scan', LaserScan, self.callback)
         self.pub = rospy.Publisher('/laser/revised_scan', LaserScan, queue_size = 10)
         self.scann = LaserScan()
+        self.coll = []
         self.landpos = [(0.5,1.5)]
         self.fly()
 
     def path(self):
-        return [(0,0),(8,0),(5,5),(0,5),(0,0)]
+        return [(0,0),(5,0),(5,5),(0,5),(0,0)]
 
 
     def get_latest_path(self):
@@ -35,8 +37,11 @@ class Drone:
         return(abs(a-b) <= abs_tol)
 
     def landing(self):
-        self.offb_set_mode.custom_mode = 'AUTO.LAND'
-        self.goalpose.pose.position.z = 0
+        while self.goalpose.pose.position.z != 0 :
+            self.offb_set_mode = SetModeRequest()
+            self.offb_set_mode.custom_mode = 'AUTO.LAND'
+            print("banged")
+            self.goalpose.pose.position.z = 0
 
     def get_new_coord(self,current_coord):
         if self.coordinate_count == 0:
@@ -65,21 +70,27 @@ class Drone:
         self.scann.range_min = 0.50999999977648
         self.scann.range_max = 32.0
         self.scann.ranges = msg.ranges[::5]
-        coll = []
+        self.coll = []
         for i in range(len(self.scann.ranges)):
-            if 1 <= (self.scann.ranges[i]) <= 5:      #filter bad data
-                coll.append((i,self.scann.ranges[i]))
-        print(coll)
+            if 0.6 <= (self.scann.ranges[i]) <= 6:      #filter bad data from min to max range
+                self.coll.append((self.scann.ranges[i],i))
+        if len(self.coll) != 0:
+            print(min(self.coll))
         '''
         function to conjoin last and first chunking to get point nearest obstacle
         '''
-
-        #if (coll[0]-coll[-1])
-        #print ((coll[0]+coll[-1])/2)
-        #self.scann.intensities = msg.intensities[0:40]
         self.pub.publish(self.scann)
 
-
+    
+    def avoid(self):
+       #collision detection
+        if(len(self.coll) != 0):
+            for i in self.coll :
+                if i[0]<=0.7:
+                    self.landing()
+                    print ("bang")
+        
+        
     def state_cb(self,msg):
         self.current_state = msg
 
@@ -110,24 +121,26 @@ class Drone:
         arm_cmd.value = True
 
         self.offb_set_mode = SetModeRequest()
-        self.offb_set_mode.custom_mode = 'OFFBOARD'
+        if self.offb_set_mode.custom_mode == '':
+            self.offb_set_mode.custom_mode = 'OFFBOARD'
 
         rate = rospy.Rate(20)
-        while(not rospy.is_shutdown()):
-            if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):  #check offboard mode on
+
+        while(not rospy.is_shutdown() and self.offb_set_mode.custom_mode != "AUTO.LAND"):
+            self.avoid()
+            if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0) and self.current_state.mode != "AUTO.LAND"):  #check offboard mode on
                 if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
                     print("OFFBOARD enabled")
-                
                 last_req = rospy.Time.now()
-            elif(not self.current_state.armed and (rospy.Time.now() - last_req) > rospy.Duration(5.0)):         #check if vehicle armed
+
+            elif(not self.current_state.armed and (rospy.Time.now() - last_req) > rospy.Duration(5.0) and self.current_state.mode != "AUTO.LAND"):         #check if vehicle armed
                 if(arming_client.call(arm_cmd).success == True):
                     print("Vehicle armed")
-                
                 last_req = rospy.Time.now()
-            
-            elif  self.isclose(self.goalpose.pose.position.x,self.nowPose.pose.pose.position.x,0.1)&\
+
+            elif (self.isclose(self.goalpose.pose.position.x,self.nowPose.pose.pose.position.x,0.1)&\
                 self.isclose(self.goalpose.pose.position.y,self.nowPose.pose.pose.position.y,0.1)&\
-                self.isclose(self.goalpose.pose.position.z,self.nowPose.pose.pose.position.z,0.1):              #check if position reached goal position for new goal
+                self.isclose(self.goalpose.pose.position.z,self.nowPose.pose.pose.position.z,0.1)): #check if position reached goal position for new goal, to change : insert data for next body before moving on
                 self.current_coord = self.get_new_coord(self.current_coord)
                 self.goalpose.pose.position.x = self.current_coord[0]
                 self.goalpose.pose.position.y = self.current_coord[1]
@@ -142,6 +155,9 @@ class Drone:
                 self.goalpose.pose.position.z = self.desired_height
                 self.local_pos_pub.publish(self.goalpose)
                 
+
+                
+        rate.sleep()
 
            
         
