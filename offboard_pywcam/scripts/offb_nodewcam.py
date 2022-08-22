@@ -7,6 +7,7 @@ from sensor_msgs.msg import LaserScan
 from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
 
+
 class Drone:
     def __init__(self,desired_height):      #iris drone size = 0.5,0.5,0.15m l,w,h
         self.current_state = State()
@@ -24,6 +25,7 @@ class Drone:
         self.landpos = [(0.5,1.5)]
         self.fly()
 
+
     def path(self):
         return [(0,0),(5,0),(5,5),(0,5),(0,0)]
 
@@ -33,8 +35,10 @@ class Drone:
         num_of_points_in_path = len(self.path())
         return self.path()
     
+
     def isclose(self,a,b,abs_tol):
         return(abs(a-b) <= abs_tol)
+
 
     def landing(self):
         while self.goalpose.pose.position.z != 0 :
@@ -43,7 +47,8 @@ class Drone:
             print("banged")
             self.goalpose.pose.position.z = 0
 
-    def get_new_coord(self,current_coord):
+
+    def get_new_coord(self):
         if self.coordinate_count == 0:
             self.coordinate_count += 1
             return self.get_latest_path()[0] #go to BL
@@ -90,9 +95,13 @@ class Drone:
                     self.landing()
                     print ("bang")
         
+        #main avoidance
+       # elif ()
+        
         
     def state_cb(self,msg):
         self.current_state = msg
+
 
     def local_position_callback(self,data):
         self.nowPose = data
@@ -121,6 +130,7 @@ class Drone:
         arm_cmd.value = True
 
         self.offb_set_mode = SetModeRequest()
+
         if self.offb_set_mode.custom_mode == '':
             self.offb_set_mode.custom_mode = 'OFFBOARD'
 
@@ -128,6 +138,7 @@ class Drone:
 
         while(not rospy.is_shutdown() and self.offb_set_mode.custom_mode != "AUTO.LAND"):
             self.avoid()
+
             if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0) and self.current_state.mode != "AUTO.LAND"):  #check offboard mode on
                 if(self.set_mode_client.call(self.offb_set_mode).mode_sent == True):
                     print("OFFBOARD enabled")
@@ -141,7 +152,7 @@ class Drone:
             elif (self.isclose(self.goalpose.pose.position.x,self.nowPose.pose.pose.position.x,0.1)&\
                 self.isclose(self.goalpose.pose.position.y,self.nowPose.pose.pose.position.y,0.1)&\
                 self.isclose(self.goalpose.pose.position.z,self.nowPose.pose.pose.position.z,0.1)): #check if position reached goal position for new goal, to change : insert data for next body before moving on
-                self.current_coord = self.get_new_coord(self.current_coord)
+                self.current_coord = self.get_new_coord()
                 self.goalpose.pose.position.x = self.current_coord[0]
                 self.goalpose.pose.position.y = self.current_coord[1]
                 self.goalpose.pose.position.z = self.desired_height
@@ -154,13 +165,9 @@ class Drone:
                 self.goalpose.pose.position.y = self.current_coord[1]
                 self.goalpose.pose.position.z = self.desired_height
                 self.local_pos_pub.publish(self.goalpose)
-                
-
-                
         rate.sleep()
 
-           
-        
+    
 if __name__ == '__main__':
     rospy.init_node("offb_node_pywcam")
     drone = Drone(3)
