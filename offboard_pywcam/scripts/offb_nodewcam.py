@@ -1,6 +1,7 @@
 #! /usr/bin/env python
 from cmath import sin
 from math import asin, atan2, degrees, radians, sinh
+from numbers import Real
 from os import close
 from pickle import FALSE
 import rospy
@@ -40,7 +41,7 @@ class Drone:
     
 
     def path(self):
-        return [(0,0),(7,0),(7,1.5),(5,2),(5,3),(5,1)]
+        return [(0,0),(1.5,5),(5,5),(3,3),(6,0),(5,0)]
 
 
     def get_latest_path(self):
@@ -93,7 +94,6 @@ class Drone:
             self.offb_set_mode.custom_mode = 'AUTO.LAND'
             print("Landing")
             self.goalpose.pose.position.z = 0    
-        close()
 
     def bang(self):
        #collision detection at 0.7m from sensor. reason why is corner of 0.5,0.5.
@@ -105,7 +105,8 @@ class Drone:
         
     
     def avoid(self):
-        return
+        print ('gonna bang')
+        return (6,6)
         
 
     #main avoidance
@@ -119,10 +120,16 @@ class Drone:
                     if angle_of_care > 180:
                         angle_of_care = 360 - angle_of_care
                     #print (traj_angle,i[1],angle_of_care)
-                    if angle_of_care<90:
-                        perpendicular_distance_to_path = sin(radians(angle_of_care)/radians(i[0]))
+                    if angle_of_care > 90:
+                        print("no fear")
+                    else:
+                        perpendicular_distance_to_path = sin(radians(angle_of_care))*i[0]          
+                        if perpendicular_distance_to_path.real < 0.8 and i[0]<mag:
+                            #print (perpendicular_distance_to_path.real < 0.8 , i[0]<mag)
+                            a,b = self.avoid()
                         #print(perpendicular_distance_to_path)
-                    print(angle_of_care)
+                        else:
+                            print("no fear")
             return(a,b)
             '''
             for i in self.coll:
@@ -188,7 +195,6 @@ class Drone:
         rate = rospy.Rate(20)
 
         while(not rospy.is_shutdown() and self.offb_set_mode.custom_mode != "AUTO.LAND"):
-            self.avoid()
             self.bang()
 
             if(self.current_state.mode != "OFFBOARD" and (rospy.Time.now() - last_req) > rospy.Duration(5.0) and self.current_state.mode != "AUTO.LAND"):  #check offboard mode on
