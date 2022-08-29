@@ -1,9 +1,10 @@
 #! /usr/bin/env python
-from cmath import sin
+from cmath import cos, sin
 from math import asin, atan2, degrees, radians, sinh
 from numbers import Real
 from os import close
-from pickle import FALSE
+from pickle import FALSE, TRUE
+from turtle import clear
 import rospy
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import PoseStamped
@@ -11,6 +12,18 @@ from sensor_msgs.msg import LaserScan
 from mavros_msgs.msg import State
 from mavros_msgs.srv import CommandBool, CommandBoolRequest, SetMode, SetModeRequest
 
+
+'''
+Credits: Arnab cuz he smart, Aaron for helping find global pose, ZC for allowing me in, Hansel for doing this wayyy before anyone else.
+Tangent bug algorithm used as described in paper below
+https://www.ijert.org/research/comparison-of-various-obstacle-avoidance-algorithms-IJERTV4IS120636.pdf
+
+Idea is for a drone to follow waypoints posted in a list of tuples [(x1,y1),(x2,y2),(x3,y3)] upon moving to an obstacle, navigate around the obstacle and continue along. When at final point, land.
+
+Caveats, for now, waypoints must be outside of the obstacle. There is no knowledge of whether the drone has moved to the right waypoint if the waypoint is within the obstacle.
+
+Obstacle file is loaded on new_world.sdf in local .ros /home/spencer/PX4-Autopilot/Tools/sitl_gazebo/worlds
+'''
 
 class Drone:
     def __init__(self,desired_height):      #iris drone size = 0.9,0.9,0.15m l,w,h bang at 0.7, clearance at 0.8
@@ -27,9 +40,16 @@ class Drone:
         self.sub = rospy.Subscriber('/laser/scan', LaserScan, self.scan_obstacle)
         self.pub = rospy.Publisher('/laser/revised_scan', LaserScan, queue_size = 10)
         self.scann = LaserScan()
+        self.traj_angle = 0
         self.coll = []
+        self.ob_LR = True #True = anticlockwise, False = Clockwise
         self.landpos = [(0.5,1.5)]
         self.fly()
+
+
+##path is given here
+    def path(self):
+        return [(0,0),(6,6),(0,0),(6,5),(0,0),(6,0),(0,6)]
 
 
     def state_cb(self,msg):
@@ -39,10 +59,6 @@ class Drone:
     def local_position_callback(self,data):
         self.nowPose = data
     
-
-    def path(self):
-        return [(0,0),(1.5,5),(5,5),(3,3),(6,0),(5,0)]
-
 
     def get_latest_path(self):
         global num_of_points_in_path 
@@ -54,23 +70,18 @@ class Drone:
         return(abs(a-b) <= abs_tol)
 
 
-    def get_new_goal_coord(self):
-        if self.coordinate_count == 0:
-            self.coordinate_count += 1
-            return self.get_latest_path()[0] #go to BL
-            
-        elif self.coordinate_count == num_of_points_in_path:
+    def get_new_goal_coord(self):            
+        if self.coordinate_count >= num_of_points_in_path:
             self.landing()
-            return self.get_latest_path()[self.coordinate_count-1]
+            return self.get_latest_path()[-1]
 
         else:    
             self.coordinate_count += 1
             print ("incrementing")
-            return self.get_latest_path()[self.coordinate_count-1]
+            return self.get_latest_path()[self.coordinate_count]
 
 
     def scan_obstacle(self,msg):
-    #print(len(msg.ranges))          #len is 360
         current_time = rospy.Time.now()
         self.scann.header.stamp = current_time
         self.scann.header.frame_id = 'laser'
@@ -82,18 +93,23 @@ class Drone:
         self.scann.range_max = 32.0
         self.scann.ranges = msg.ranges
         self.coll = []
+        self.coll_angles = []
         for i in range(len(self.scann.ranges)):
             if 0.6 <= (self.scann.ranges[i]) <= 8:      #filter bad data from min to max range
                 self.coll.append((round(self.scann.ranges[i],3),i))
+                self.coll_angles.append(i)
+
         self.pub.publish(self.scann)
 
 
     def landing(self):
-        while self.goalpose.pose.position.z != 0 :
+        if self.nowPose.pose.pose.position.z >= .1 :
             self.offb_set_mode = SetModeRequest()
             self.offb_set_mode.custom_mode = 'AUTO.LAND'
             print("Landing")
             self.goalpose.pose.position.z = 0    
+        else:
+            close() 
 
     def bang(self):
        #collision detection at 0.7m from sensor. reason why is corner of 0.5,0.5.
@@ -103,48 +119,52 @@ class Drone:
                     print("bang")
                     self.landing()
         
-    
-    def avoid(self):
-        print ('gonna bang')
-        return (6,6)
-        
+    #inputs for avoid, traj, obstacle, obstacle distance, is obstacle CCW or ACW
+    def avoid(self,traj,obstacle_angle,ob_dist): #get nearest clear point closest to the goal. 1st step get first point off angle
+        clear_angle = self.get_clear_angle(self.traj_angle)
+        avoid_angle = clear_angle[1] + 90
+        #print (clear_angle,traj,obstacle_angle,ob_dist, avoid_angle,3)
+        x_ob,y_ob,x_avoid,y_avoid =  -ob_dist*cos(radians(clear_angle[1])),-ob_dist*sin(radians(clear_angle[1])), -1*cos(radians(avoid_angle)),-1*sin(radians(avoid_angle))
+        a,b = (self.nowPose.pose.pose.position.x + x_ob + x_avoid, self.nowPose.pose.pose.position.y + y_ob + y_avoid)
+        print (a,b,self.nowPose.pose.pose.position.x, self.nowPose.pose.pose.position.y, x_ob.real,y_ob.real,x_avoid.real,y_avoid.real,"d")
+        return(a.real,b.real)
 
+    #if collide, always go left around obstacle
+    def get_clear_angle(self,int):
+        if int not in self.coll_angles:
+            if int == 0 :
+                return (self.scann.ranges[360],int)
+            else :
+                return (self.scann.ranges[int-1],int)
+        else:
+            if int == 360:
+                return self.get_clear_angle (0)
+            else:
+                return (self.get_clear_angle(int + 1))
     #main avoidance
     #if no collison, post waypoint within 5m from drone in line to goalpoint
     def check_coll(self):
         if self.get_point() != None :
-            (a,b,mag,traj_angle)=self.get_point()
+            (a,b,self.mag,self.traj_angle)=self.get_point()
             if self.coll != []:
                 for i in self.coll:
-                    angle_of_care = abs(traj_angle-i[1])
+                    angle_of_care = abs(self.traj_angle-i[1])
                     if angle_of_care > 180:
                         angle_of_care = 360 - angle_of_care
                     #print (traj_angle,i[1],angle_of_care)
-                    if angle_of_care > 90:
-                        print("no fear")
-                    else:
+                    if angle_of_care < 90 :
                         perpendicular_distance_to_path = sin(radians(angle_of_care))*i[0]          
-                        if perpendicular_distance_to_path.real < 0.8 and i[0]<mag:
-                            #print (perpendicular_distance_to_path.real < 0.8 , i[0]<mag)
-                            a,b = self.avoid()
-                        #print(perpendicular_distance_to_path)
-                        else:
-                            print("no fear")
-            return(a,b)
-            '''
-            for i in self.coll:
-                if i[0] <= mag:
-                    #print(degrees(sinh(0.75/i[0])))
-                    #print (abs(i[1] - angle) - int(degrees(asin(0.71/i[0])))/5,i[0],mag)
-                    if abs(i[1] - angle) < int(degrees(asin(0.71/i[0])))/5:
-                        print("collision path detected")
-            return (a,b)
-            '''
+                        if perpendicular_distance_to_path.real < 0.8 and i[0]< self.mag:
+                            a,b = self.avoid(self.traj_angle,i[1],i[0]) #inputs for avoid, traj, obstacle, obstacle distance
+                            return (a,b)
+                            
+                    else:
+                        return self.get_latest_path()[self.coordinate_count]
+            return self.get_latest_path()[self.coordinate_count]
         else:
-            return (0,0)
-    
+            return self.get_latest_path()[self.coordinate_count]
 
-    #get_point is to check if way forward is clear. If clear for the next 5m mark clear and check every cycle. if goal is within 5m then publish goal. if further than 5m publish 5m forward. 
+    #get_point is to check if way forward is clear. If clear for the next 5.8m mark clear and check every cycle. if goal is within 5.8m then publish goal. if further than 5.8m publish 5.8m forward. 
     def get_point(self):
         if (((self.goalpose.pose.position.x - self.nowPose.pose.pose.position.x) != 0.0) & ((self.goalpose.pose.position.y - self.nowPose.pose.pose.position.y) != 0.0)):
             # find the vector a-b
@@ -152,20 +172,20 @@ class Drone:
             # find the length of this vector
             len_ab = (abx * abx + aby * aby) ** 0.5
             # find the angle of this vector in the space I made
-            angle_of_vector = degrees(atan2(abx,aby))
+            angle_of_vector = int(degrees(atan2(abx,aby)))
             #convert angle to 0-360 0W rplidar scan
-            angle_of_vector1 = 270 - angle_of_vector
-            if angle_of_vector1 > 360:
-                angle_of_vector1 = abs(angle_of_vector1-360)
+            self.traj_angle = 270 - angle_of_vector
+            if self.traj_angle > 360:
+                self.traj_angle = abs(self.traj_angle-360)
             #angle_of_vector_in_revised_scan = int(angle_of_vector+90)/5
             if (len_ab <= 5.8):
-                return (self.goalpose.pose.position.x,self.goalpose.pose.position.y,len_ab,angle_of_vector1)
+                return (self.goalpose.pose.position.x,self.goalpose.pose.position.y,len_ab,self.traj_angle)
             # scale to length 5
             else:
                 ab5x, ab5y = abx *5.8 / len_ab, aby *5.8 / len_ab
             # add to a (== p0)
                 finx, finy = self.nowPose.pose.pose.position.x + ab5x, self.nowPose.pose.pose.position.y + ab5y
-                return (finx,finy,len_ab,angle_of_vector1)        
+                return (finx,finy,len_ab,self.traj_angle)        
         
       
     def fly(self): 
@@ -220,16 +240,19 @@ class Drone:
 
             else :                                                                                              #keeps publishing goal position for FC to follow
                 (x,y)=self.check_coll()
-                self.goalpose.pose.position.x = x
-                self.goalpose.pose.position.y = y
-                self.local_pos_pub.publish(self.goalpose)
+                self.nextpose.pose.position.x = x
+                self.nextpose.pose.position.y = y
+                self.nextpose.pose.position.z = self.desired_height
+                self.local_pos_pub.publish(self.nextpose)
+                #print(x,y,self.coordinate_count,"g")
+                
 
         rate.sleep()
 
     
 if __name__ == '__main__':
     rospy.init_node("offb_node_pywcam")
-    drone = Drone(1)
+    drone = Drone(3)
     rospy.spin()
 
 '''
