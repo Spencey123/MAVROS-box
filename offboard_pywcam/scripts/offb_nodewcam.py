@@ -42,7 +42,7 @@ class Drone:
         self.scann = LaserScan()
         self.traj_angle = 0
         self.coll = []
-        self.ob_LR = True #True = anticlockwise, False = Clockwise
+        self.avoid_scale = 1
         self.landpos = [(0.5,1.5)]
         self.fly()
 
@@ -124,7 +124,7 @@ class Drone:
         clear_angle = self.get_clear_angle(self.traj_angle)
         avoid_angle = clear_angle[1] + 90
         #print (clear_angle,traj,obstacle_angle,ob_dist, avoid_angle,3)
-        x_ob,y_ob,x_avoid,y_avoid =  -ob_dist*cos(radians(clear_angle[1])),-ob_dist*sin(radians(clear_angle[1])), -1*cos(radians(avoid_angle)),-1*sin(radians(avoid_angle))
+        x_ob,y_ob,x_avoid,y_avoid =  -ob_dist*cos(radians(clear_angle[1])),-ob_dist*sin(radians(clear_angle[1])), -self.avoid_scale*cos(radians(avoid_angle)),-self.avoid_scale*sin(radians(avoid_angle))
         a,b = (self.nowPose.pose.pose.position.x + x_ob + x_avoid, self.nowPose.pose.pose.position.y + y_ob + y_avoid)
         print (a,b,self.nowPose.pose.pose.position.x, self.nowPose.pose.pose.position.y, x_ob.real,y_ob.real,x_avoid.real,y_avoid.real,"d")
         return(a.real,b.real)
