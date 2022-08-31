@@ -42,14 +42,14 @@ class Drone:
         self.scann = LaserScan()
         self.traj_angle = 0
         self.coll = []
-        self.avoid_scale = 1
+        self.avoid_scale = 2
         self.landpos = [(0.5,1.5)]
         self.fly()
 
 
 ##path is given here
     def path(self):
-        return [(0,0),(6,6),(0,0),(6,5),(0,0),(6,0),(0,6)]
+        return [(6,3),(0,3),(3,3)]
 
 
     def state_cb(self,msg):
@@ -71,13 +71,14 @@ class Drone:
 
 
     def get_new_goal_coord(self):            
-        if self.coordinate_count >= num_of_points_in_path:
+        if self.coordinate_count >= num_of_points_in_path -1 :
             self.landing()
             return self.get_latest_path()[-1]
 
         else:    
             self.coordinate_count += 1
             print ("incrementing")
+            print (self.coordinate_count,num_of_points_in_path)
             return self.get_latest_path()[self.coordinate_count]
 
 
@@ -98,7 +99,6 @@ class Drone:
             if 0.6 <= (self.scann.ranges[i]) <= 8:      #filter bad data from min to max range
                 self.coll.append((round(self.scann.ranges[i],3),i))
                 self.coll_angles.append(i)
-
         self.pub.publish(self.scann)
 
 
@@ -119,50 +119,6 @@ class Drone:
                     print("bang")
                     self.landing()
         
-    #inputs for avoid, traj, obstacle, obstacle distance, is obstacle CCW or ACW
-    def avoid(self,traj,obstacle_angle,ob_dist): #get nearest clear point closest to the goal. 1st step get first point off angle
-        clear_angle = self.get_clear_angle(self.traj_angle)
-        avoid_angle = clear_angle[1] + 90
-        #print (clear_angle,traj,obstacle_angle,ob_dist, avoid_angle,3)
-        x_ob,y_ob,x_avoid,y_avoid =  -ob_dist*cos(radians(clear_angle[1])),-ob_dist*sin(radians(clear_angle[1])), -self.avoid_scale*cos(radians(avoid_angle)),-self.avoid_scale*sin(radians(avoid_angle))
-        a,b = (self.nowPose.pose.pose.position.x + x_ob + x_avoid, self.nowPose.pose.pose.position.y + y_ob + y_avoid)
-        print (a,b,self.nowPose.pose.pose.position.x, self.nowPose.pose.pose.position.y, x_ob.real,y_ob.real,x_avoid.real,y_avoid.real,"d")
-        return(a.real,b.real)
-
-    #if collide, always go left around obstacle
-    def get_clear_angle(self,int):
-        if int not in self.coll_angles:
-            if int == 0 :
-                return (self.scann.ranges[360],int)
-            else :
-                return (self.scann.ranges[int-1],int)
-        else:
-            if int == 360:
-                return self.get_clear_angle (0)
-            else:
-                return (self.get_clear_angle(int + 1))
-    #main avoidance
-    #if no collison, post waypoint within 5m from drone in line to goalpoint
-    def check_coll(self):
-        if self.get_point() != None :
-            (a,b,self.mag,self.traj_angle)=self.get_point()
-            if self.coll != []:
-                for i in self.coll:
-                    angle_of_care = abs(self.traj_angle-i[1])
-                    if angle_of_care > 180:
-                        angle_of_care = 360 - angle_of_care
-                    #print (traj_angle,i[1],angle_of_care)
-                    if angle_of_care < 90 :
-                        perpendicular_distance_to_path = sin(radians(angle_of_care))*i[0]          
-                        if perpendicular_distance_to_path.real < 0.8 and i[0]< self.mag:
-                            a,b = self.avoid(self.traj_angle,i[1],i[0]) #inputs for avoid, traj, obstacle, obstacle distance
-                            return (a,b)
-                            
-                    else:
-                        return self.get_latest_path()[self.coordinate_count]
-            return self.get_latest_path()[self.coordinate_count]
-        else:
-            return self.get_latest_path()[self.coordinate_count]
 
     #get_point is to check if way forward is clear. If clear for the next 5.8m mark clear and check every cycle. if goal is within 5.8m then publish goal. if further than 5.8m publish 5.8m forward. 
     def get_point(self):
@@ -187,7 +143,121 @@ class Drone:
                 finx, finy = self.nowPose.pose.pose.position.x + ab5x, self.nowPose.pose.pose.position.y + ab5y
                 return (finx,finy,len_ab,self.traj_angle)        
         
-      
+
+    #main avoidance
+    #if no collison, post waypoint within 5m from drone in line to goalpoint
+    def check_coll(self):
+        if self.get_point() != None :
+            (a,b,self.mag,self.traj_angle)=self.get_point()
+            if self.coll != []:
+                for i in self.coll:
+                    angle_of_care = abs(self.traj_angle-i[1])
+                    if angle_of_care > 180:
+                        angle_of_care = 360 - angle_of_care
+                    #print (traj_angle,i[1],angle_of_care)
+                    if angle_of_care < 90 :
+                        perpendicular_distance_to_path = sin(radians(angle_of_care))*i[0]          
+                        if perpendicular_distance_to_path.real < 0.8 and i[0]< self.mag:
+                            a,b = self.avoid2(self.traj_angle,i[1],i[0]) #inputs for avoid: traj, obstacle, obstacle distance
+                            return (a,b)
+                            
+                    else:
+                        return self.get_latest_path()[self.coordinate_count]
+            return self.get_latest_path()[self.coordinate_count]
+        else:
+            return self.get_latest_path()[self.coordinate_count]
+
+
+    
+    #if collide, always go left around obstacle
+    def get_clear_angle(self,int):
+        if int not in self.coll_angles:
+            if int == 0 :
+                return (self.scann.ranges[360],int)
+            else :
+                return (self.scann.ranges[int-1],int)
+        else:
+            if int == 360:
+                return self.get_clear_angle (0)
+            else:
+                return (self.get_clear_angle(int + 1))
+    
+
+#sort list in ascending order with min and max as tuples
+    def sort_sensor(self,int,obstacle_angle):
+        if int in self.coll_angles:
+            b = []
+            subList = []
+            prev_n = -1
+            for n in self.coll_angles:
+                if prev_n+1 != n:            # end of previous subList and beginning of next
+                    if subList:              # if subList already has elements
+                        b.append(subList)
+                        subList = []
+                subList.append(n)
+                prev_n = n
+            if subList:
+                b.append(subList)           #b is sorted list i.e [[1,2],[4,5],[6,7]]
+            print (b[0][0],b[-1][-1],"c")
+            if b[0][0] == 0 and b[-1][-1]==359:
+                c = b[-1]
+                d = b[0]
+                e = []
+                for i in b[0]:
+                    c.append(i+360)
+                for i in b[-1]:
+                    e.append(i-360)
+                b[0]=e
+                b[-1]=c
+            print (b,2)
+            for i in b:
+                if (int in i):
+                    #print(int - i[1] , i[-1] - int)
+                    if int - i[1] >= i[-1] - int:
+                        print(i[-1],True,1)
+                        return (i[-1],True)
+                    else:
+                        print(i[1],False,2)
+                        return (i[1],False)
+        else:
+            if int - obstacle_angle >180: #0-360 scenario
+                return (360 - int - obstacle_angle,False)
+            if int - obstacle_angle < - 180:
+                return (360 + int - obstacle_angle, True)
+                #write code catching 0-360 transition. 
+            if int > obstacle_angle:
+                print (int,obstacle_angle,1)
+                return(int,True)
+            else:
+                print(int,obstacle_angle,0)
+                return(int,False)
+
+        
+    
+    def avoid(self,traj,obstacle_angle,ob_dist): #get nearest clear point closest to the goal. 1st step get first point off angle
+        clear_angle = self.get_clear_angle(self.traj_angle)
+        avoid_angle = clear_angle[1] + 90
+        #print (clear_angle,traj,obstacle_angle,ob_dist, avoid_angle,3)
+        x_ob,y_ob,x_avoid,y_avoid =  -ob_dist*cos(radians(clear_angle[1])),-ob_dist*sin(radians(clear_angle[1])), -self.avoid_scale*cos(radians(avoid_angle)),-self.avoid_scale*sin(radians(avoid_angle))
+        a,b = (self.nowPose.pose.pose.position.x + x_ob + x_avoid, self.nowPose.pose.pose.position.y + y_ob + y_avoid)
+        #print (a,b,self.nowPose.pose.pose.position.x, self.nowPose.pose.pose.position.y, x_ob.real,y_ob.real,x_avoid.real,y_avoid.real,"d")
+        return(a.real,b.real)
+    
+
+    def avoid2(self,traj,obstacle_angle,ob_dist): #get nearest clear point closest to the goal. 1st step get first point off angle
+        best_angle,moving_L = self.sort_sensor(self.traj_angle,obstacle_angle)
+        print (best_angle, moving_L)
+        if moving_L == True:
+            avoid_angle = best_angle + 90
+        else:
+            avoid_angle = best_angle - 90
+        #print (clear_angle,traj,obstacle_angle,ob_dist, avoid_angle,3)
+        x_ob,y_ob,x_avoid,y_avoid =  -ob_dist*cos(radians(best_angle)),-ob_dist*sin(radians(best_angle)), -self.avoid_scale*cos(radians(avoid_angle)),-self.avoid_scale*sin(radians(avoid_angle))
+        a,b = (self.nowPose.pose.pose.position.x + x_ob + x_avoid, self.nowPose.pose.pose.position.y + y_ob + y_avoid)
+        #print (a,b,self.nowPose.pose.pose.position.x, self.nowPose.pose.pose.position.y, x_ob.real,y_ob.real,x_avoid.real,y_avoid.real,"d")
+        return(a.real,b.real)
+
+
     def fly(self): 
 
         rospy.wait_for_service("/mavros/cmd/arming")
@@ -200,8 +270,8 @@ class Drone:
         last_req = rospy.Time.now()
 
         #set goal for movement from init
-        self.goalpose.pose.position.x = self.current_coord[0]
-        self.goalpose.pose.position.y = self.current_coord[1]
+        self.goalpose.pose.position.x = self.get_latest_path()[self.coordinate_count][0]
+        self.goalpose.pose.position.y = self.get_latest_path()[self.coordinate_count][1]
         self.goalpose.pose.position.z = self.desired_height
 
         arm_cmd = CommandBoolRequest()
